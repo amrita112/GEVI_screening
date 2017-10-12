@@ -20,22 +20,23 @@ for k = 1 : length(files)
     base_file_name = files(k).name;
     filename = fullfile(folder, base_file_name);
     I = imread(filename); % Array with pixel values
+    %I = I*5;
     %subplot(3, 3, 1)
     %factor = 65536/max(max(I));
     %imshow(I*factor)
 
     % Low pass filter
-    filt = ones(25)/25;
-    I_low_pass = uint16(filter2(filt, I));
+    %filt = ones(25)/25;
+    %I_low_pass = uint16(filter2(filt, I));
     %factor = 65536/max(max(I_low_pass));
     %subplot(3, 3, 2)
     %imshow(I_low_pass*factor)
-    title('low pass filtered image')
+    %title('low pass filtered image')
     
     % Binary gradient mask - could be that this emphasises processes?
-    [~, threshold] = edge(I_low_pass, 'sobel');
-    fudgeFactor = 0.8;
-    BWs = edge(I_low_pass,'sobel', threshold * fudgeFactor);
+    [~, threshold] = edge(I, 'sobel');
+    fudgeFactor = 1.5;
+    BWs = edge(I,'sobel', threshold * fudgeFactor);
     %[~, threshold] = edge(I, 'sobel');
     %BWs = edge(I_low_pass,'sobel', threshold * fudgeFactor);
     %subplot(3, 3, 3), imshow(BWs), title('binary gradient mask');
@@ -52,14 +53,14 @@ for k = 1 : length(files)
     %subplot(3, 3, 5), imshow(BWdfill*factor);
     %title('Filled holes');
 
-%     % Remove connected objects on border 
-%     BWnobord = imclearborder(BWdfill, 4);
-%     subplot(3, 3, 6), imshow(BWnobord), title('cleared border image');
+    % Remove connected objects on border 
+    BWnobord = imclearborder(BWdfill, 4);
+    %subplot(3, 3, 6), imshow(BWnobord), title('cleared border image');
 
 %     Smoothen the object - maybe this will make it more circular
-%     seD = strel('diamond',1);
-%     BWfinal = imerode(BWnobord,seD);
-%     BWfinal = imerode(BWfinal,seD);
+      seD = strel('diamond',1);
+      BWfinal = imerode(BWnobord,seD);
+      BWfinal = imerode(BWfinal,seD);
 %     subplot(3, 3, 7)
 %     imshow(BWfinal), title('segmented image');
 
@@ -85,7 +86,9 @@ for fig = 1:2
     figure
     for k = ((fig - 1)*119 + 1):(fig*119)
         if (k <= length(ind_with_cells))
-            k
+            if(mod(k, 100) == 0)
+                k
+            end
             base_file_name = files(ind_with_cells(k)).name;
             filename = fullfile(folder, base_file_name);
             I = imread(filename); % Array with pixel values
@@ -105,7 +108,9 @@ for fig = 1:5
     figure
     for k = ((fig - 1)*100 + 1):(fig*100)
         if (k <= length(ind_without_cells))
-            k
+            if(mod(k, 100) == 0)
+                k
+            end
             base_file_name = files(ind_without_cells(k)).name;
             filename = fullfile(folder, base_file_name);
             I = imread(filename); % Array with pixel values
