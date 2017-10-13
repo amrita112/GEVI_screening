@@ -3,131 +3,67 @@
 % with or without cells and output the coordinates of fields with cells in
 % a text file with the format used for screening. 
 
-folder = 'Autofocus_100517';
-file_pattern = fullfile(folder, '*.tif'); 
-files = dir(file_pattern);
+%function [with_cells] = find_cells(folder, plot_all, low_pass, filt_size, fudgeFactor, edge_threshold, sensitivity, ...
+%    rad_range, output_file, rows, cols, first_row, first_col, num_fields)
 
-k = 1; % Counter to iterate over files
-with_cells = zeros(length(files), 1); % 1 if file has cell
-
-for k = 1 : length(files)
-    %figure
-    if (mod(k, 100) == 0)
-        % Sporadically inform user which file is being processed
-        k 
-    end
-    % Get full filename
-    base_file_name = files(k).name;
-    filename = fullfile(folder, base_file_name);
-    I = imread(filename); % Array with pixel values
-    %I = I*5;
-    %subplot(3, 3, 1)
-    %factor = 65536/max(max(I));
-    %imshow(I*factor)
-
-    % Low pass filter
-    low_pass = 1;
-    if(low_pass == 1)
-        filt = ones(9)/9;
-        I_low_pass = uint16(filter2(filt, I));
-        factor = 65536/max(max(I_low_pass));
-    %     subplot(3, 3, 2)
-    %     imshow(I_low_pass*factor)
-    %     title('low pass filtered image')
-    end
+function [with_cells] = find_cells(plot_all, low_pass, filt_size, fudgeFactor, edge_threshold, sensitivity, ...
+    rad_range, output_file, rows, cols, total_cols, first_row, first_col, num_fields)
     
-    % Binary gradient mask - could be that this emphasises processes?
-    if (low_pass == 1)
-        [~, threshold] = edge(I_low_pass, 'sobel');
-        fudgeFactor = 1.5;
-        BWs = edge(I_low_pass,'sobel', threshold * fudgeFactor);
-    else
-        [~, threshold] = edge(I, 'sobel');
-        fudgeFactor = 1.5;
-        BWs = edge(I,'sobel', threshold * fudgeFactor);
-    end
-    %[~, threshold] = edge(I, 'sobel');
-    %BWs = edge(I_low_pass,'sobel', threshold * fudgeFactor);
-    %subplot(3, 3, 3), imshow(BWs), title('binary gradient mask');
-
-    % Dilating the gradient mask
-    se90 = strel('line', 3, 90);
-    se0 = strel('line', 3, 0);
-    BWsdil = imdilate(BWs, [se90 se0]);
-    %subplot(3, 3, 4), imshow(BWsdil), title('dilated gradient mask');
-
-    % Fill inerior gaps
-    BWdfill = imfill(BWsdil, 'holes');
-    %factor = 65536/max(max(BWsdil));
-    %subplot(3, 3, 5), imshow(BWdfill*factor);
-    %title('Filled holes');
-
-    % Remove connected objects on border 
-    BWnobord = imclearborder(BWdfill, 4);
-    %subplot(3, 3, 6), imshow(BWnobord), title('cleared border image');
-
-%     Smoothen the object - maybe this will make it more circular
-      seD = strel('diamond',1);
-      BWfinal = imerode(BWnobord,seD);
-      BWfinal = imerode(BWfinal,seD);
-%     subplot(3, 3, 7)
-%     imshow(BWfinal), title('segmented image');
-
-    % Find circles using specified parameters
-    edge_threshold = 0.1;
-    sensitivity = 0.98;
-    rad_range = [20, 30]; 
-    [centers, radii] = imfindcircles(BWfinal, rad_range, 'ObjectPolarity', 'bright', 'EdgeThreshold', ...
-        edge_threshold, 'Sensitivity', sensitivity);
-    %subplot(3, 3, 8)
-    %viscircles(centers, radii); % Visualize identified circles
-    %pause
-    if (~isempty(radii))
-        with_cells(k) = 1;
-    end
-end
-save('analysis4.mat', 'with_cells', 'edge_threshold', 'sensitivity', 'rad_range')
-
-% Look at classified FoVs
-l = 'WITH CELLS'
-ind_with_cells = find(with_cells); % Change to indices of files with cells
-for fig = 1:ceil(length(ind_with_cells)/100)
-    figure
-    for k = ((fig - 1)*100 + 1):(fig*100)
-        if (k <= length(ind_with_cells))
-            if(mod(k, 100) == 0)
-                k
+    % rows = number of filled rows in the plate 
+    % cols = number of filled wells per row in the plate
+    % total_cols = total number (filled and unfilled) of wells per row in the plate
+    % first_row = first filled row in plate (number, not letter)
+    % first_col = first filled well in each plate 
+    % num_fields = number of fields per well
+    
+    with_cells = zeros(rows*cols*num_fields, 1); % 1 if file has cell
+    img = 0; % Image counter
+    
+    format_spec = '"96Well%s-%s%c_%s", %d, %d, %d, %d, %d, %s, %d, %s \n';
+    
+    for row = first_row:first_row + rows - 1
+        row
+        for col = first_col:first_col + cols - 1
+            col
+            flag = 0; % Reports whether all files for that well are found
+            while (flag == 0)
+                if (col < 10)
+                    well_str = strcat(char(64 + row), num2str(0), num2str(col));
+                else
+                    well_str = strcat(char(64 + row), num2str(col));
+                end
+                file_pattern = fullfile(strcat('AutoFocus*', well_str, '*.tif')); 
+                files = dir(file_pattern);
+                if(length(files) == num_fields)
+                    flag = 1; % all files for that well found
+                end
             end
-            base_file_name = files(ind_with_cells(k)).name;
-            filename = fullfile(folder, base_file_name);
-            I = imread(filename); % Array with pixel values
-            factor = 65536/max(max(I));
-            %figure
-            subplot(5, 20, k - (fig - 1)*100)
-            imshow(I*factor)
-            %pause
-        end
-    end
-end
 
-l = 'without cells'
-ind_without_cells = find(with_cells == 0);
+            for k = 1 : length(files)
+                img = img + 1; % Update image counter
+                % Get full filename
+                base_file_name = files(k).name;
+                filename = fullfile(base_file_name);
+                I = imread(filename); % Array with pixel values
 
-for fig = 1:ceil(length(ind_without_cells)/100)
-    figure
-    for k = ((fig - 1)*100 + 1):(fig*100)
-        if (k <= length(ind_without_cells))
-            if(mod(k, 100) == 0)
-                k
+                radii = find_cells_single_file(I, low_pass, filt_size, fudgeFactor, edge_threshold, sensitivity, ...
+                rad_range, plot_all);
+
+                % If cells are found, add to with_cells
+                if (~isempty(radii))
+                    with_cells(img) = 1;
+                end                      
+                well_no = row*total_cols + col;
+                if well_no < 10
+                    well_no = strcat('0', int2str(well_no));
+                else
+                    well_no = int2str(well_no);
+                end
+                fprintf(output_file, format_spec, [well_no, well_str, char(96 + k), '375dot1', ...
+                    -17560, -1800, -1800, -1800, -1800, 'FALSE', -1800, 'TRUE, TRUE, 0, -1']);
             end
-            base_file_name = files(ind_without_cells(k)).name;
-            filename = fullfile(folder, base_file_name);
-            I = imread(filename); % Array with pixel values
-    %         figure
-            factor = 65536/max(max(I));
-            subplot(5, 20, k - (fig - 1)*100)
-            imshow(I*factor)
-%         pause
+            %save(output_file, 'with_cells', 'edge_threshold', 'sensitivity', 'rad_range')
+
         end
     end
 end
