@@ -3,85 +3,107 @@
 % with or without cells and output the coordinates of fields with cells in
 % a text file with the format used for screening. 
 
-function [] = find_cells(folder, plot_all, low_pass, filt_size, fudgeFactor, edge_threshold, sensitivity, ...
-    rad_range, output_file)
+%function [with_cells] = find_cells(folder, plot_all, low_pass, filt_size, fudgeFactor, edge_threshold, sensitivity, ...
+%    rad_range, output_file, rows, cols, first_row, first_col, num_fields)
 
-    file_pattern = fullfile(folder, '*.tif'); 
-    files = dir(file_pattern);
+function [with_cells, num_cells, well_ids, x, y, z, row_ids, col_ids, cell_no_within_well, construct] = find_cells(plot_all, ...
+    low_pass, filt_size, ...
+    fudgeFactor, edge_threshold, sensitivity, ...
+    rad_range, rows, cols, total_cols, first_row, first_col, num_fields)
+    
+    % rows: number of filled rows in the plate 
+    % cols: number of filled wells per row in the plate
+    % total_cols: total number (filled and unfilled) of wells per row in the plate
+    % first_row: first filled row in plate (number, not letter)
+    % first_col: first filled well in each plate 
+    % num_fields: number of fields per well
+    
+    with_cells = zeros(rows*cols*num_fields, 1); % 1 if file has cell
+    img = 0; % Image counter
+    cell = 0; % Cell counter
+    
+    well_ids = zeros(rows*cols*num_fields, 1); % Well numbers for position list file
+    x = zeros(rows*cols*num_fields, 1); % X position of cells
+    y = zeros(rows*cols*num_fields, 1); % Y position of cells
+    z = zeros(rows*cols*num_fields, 1); % Z position of cells
+    row_ids = zeros(rows*cols*num_fields, 1); % Row of cells
+    col_ids = zeros(rows*cols*num_fields, 1); % Col of cells
+    cell_no_within_well = zeros(rows*cols*num_fields, 1); % 'a', 'b', 'c' etc in stage position list file
 
-    with_cells = zeros(length(files), 1); % 1 if file has cell
-
-    for k = 1 : length(files)
-        
-        % Sporadically inform user which file is being processed
-        if (mod(k, 100) == 0)
-            k 
-        end
-        
-        % Get full filename
-        base_file_name = files(k).name;
-        filename = fullfile(folder, base_file_name);
-        I = imread(filename); % Array with pixel values
-
-        % Low pass filter
-        if(low_pass == 1)
-            filt = ones(filt_size)/filt_size;
-            I_low_pass = uint16(filter2(filt, I));
-        end
-
-        % Binary gradient mask - could be that this emphasises processes?
-        if (low_pass == 1)
-            [~, threshold] = edge(I_low_pass, 'sobel');
-            BWs = edge(I_low_pass,'sobel', threshold * fudgeFactor);
-        else
-            [~, threshold] = edge(I, 'sobel');
-            BWs = edge(I,'sobel', threshold * fudgeFactor);
-        end
-
-        % Dilating the gradient mask
-        se90 = strel('line', 3, 90);
-        se0 = strel('line', 3, 0);
-        BWsdil = imdilate(BWs, [se90 se0]);
-
-        % Fill inerior gaps
-        BWdfill = imfill(BWsdil, 'holes');
-
-        % Remove connected objects on border 
-        BWnobord = imclearborder(BWdfill, 4);
-
-        % Smoothen the object - maybe this will make it more circular
-        seD = strel('diamond',1);
-        BWfinal = imerode(BWnobord,seD);
-        BWfinal = imerode(BWfinal,seD);
-   
-        % Find circles using specified parameters
-        [centers, radii] = imfindcircles(BWfinal, rad_range, 'ObjectPolarity', 'bright', 'EdgeThreshold', ...
-            edge_threshold, 'Sensitivity', sensitivity);
-        
-        % If cells are found, add to with_cells
-        if (~isempty(radii))
-            with_cells(k) = 1;
-        end
-        
-        % Plot all steps for each image
-        if (plot_all == 1)
-            figure
-            factor = 65536/max(max(I)); 
-            subplot(3, 3, 1), imshow(I*factor), title('original image');  
-            if (low_pass == 1)                
-                factor = 65536/max(max(I_low_pass));
-                subplot(3, 3, 2), imshow(I_low_pass*factor), title('low pass filtered image');
+    for row = first_row:first_row + rows - 1
+        row
+        for col = first_col:first_col + cols - 1
+            trial = 0;
+            flag = 0; % Reports whether all files for that well are found
+            while (flag == 0)
+                if (col < 10)
+                    well_str = strcat(char(64 + row), num2str(0), num2str(col));
+                else
+                    well_str = strcat(char(64 + row), num2str(col));
+                end
+                file_pattern = fullfile(strcat('..\AutoFocus*', well_str, '*.tif')); 
+                files = dir(file_pattern);
+                if(length(files) == num_fields)
+                    flag = 1; % all files for that well found
+                end
             end
-            subplot(3, 3, 3), imshow(BWs), title('binary gradient mask');
-            subplot(3, 3, 4), imshow(BWsdil), title('dilated gradient mask');
-            subplot(3, 3, 5), imshow(BWdfill); ('Filled holes');
-            subplot(3, 3, 6), imshow(BWnobord), title('cleared border image');
-            subplot(3, 3, 7), imshow(BWfinal), title('segmented image');
-            subplot(3, 3, 8), viscircles(centers, radii); % Visualize identified circles
-            pause
-        end
-        
-    end
-    save(output_file, 'with_cells', 'edge_threshold', 'sensitivity', 'rad_range')
 
+            cell_within_well = 0; % Cell counter for a single well
+
+            for k = 1 : length(files)
+                img = img + 1; % Update image counter
+                % Get full filename
+                base_file_name = files(k).name;
+                filename = fullfile(base_file_name);
+                I = imread(filename); % Array with pixel values
+                
+                if(row == first_row && col == first_col && k == 1)
+                    ind_construct = strfind(filename, '_');
+                    construct = filename(ind_construct(2):(ind_construct(3) - 1));
+                    construct = strcat(construct, '", ');
+                   
+                end
+                
+                radii = find_cells_single_file(I, low_pass, filt_size, fudgeFactor, edge_threshold, sensitivity, ...
+                rad_range, plot_all);
+
+                % If cells are found, add to with_cells
+                if (~isempty(radii))
+                    with_cells(img) = 1;
+                    
+                    cell = cell + 1;
+                    well_no = row*total_cols + col;
+                    well_ids(cell) = well_no;
+
+                    % Store coordinates
+                    dot_idx = strfind(filename, 'dot');
+                    filename = filename(dot_idx:end);
+                    z_idx = strfind(filename, '_');
+                    z(cell) = str2double(filename((z_idx(2) + 1):(z_idx(3) - 1)));
+                    xypos_idx = strfind(filename, 'XY-Position');
+                    filename = filename(xypos_idx:end);
+                    xy_idx = strfind(filename, '_');
+                    x(cell) = str2double(filename((xy_idx(1) + 1):(xy_idx(2) - 1)));
+                    y(cell) = str2double(filename((xy_idx(2) + 1):(xy_idx(3) - 1)));
+                    
+                    row_ids(cell) = row + 64;
+                    col_ids(cell) = col;
+                    
+                    cell_within_well = cell_within_well + 1;
+                    cell_no_within_well(cell) = cell_within_well + 96;
+
+                end                      
+                
+            end
+        end
+    end
+    
+    num_cells = sum(sum(with_cells));
+    % Truncate well_ids, x, y, z
+    well_ids = well_ids(1:num_cells);
+    x = x(1:num_cells);
+    y = y(1:num_cells);
+    z = z(1:num_cells);
+    row_ids = row_ids(1:num_cells);
+    col_ids = col_ids(1:num_cells);
 end
